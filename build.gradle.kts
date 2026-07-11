@@ -82,7 +82,7 @@ fun Project.configureAndroidAndKotlin() {
 }
 
 subprojects {
-    group = "io.github.scout"
+    group = "io.github.FakeScoutBot"
     version = Versions.artifactVersion
 
     plugins.withId("com.android.application") {
