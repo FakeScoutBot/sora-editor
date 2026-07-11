@@ -28,6 +28,7 @@ jobs:
       - name: Publish to Maven Central
         run: ./gradlew publishAllPublicationsToMavenCentral
         env:
+          CI: "false"
           ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.MVN_USERNAME }}
           ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.MVN_PASSWORD }}
           ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.MVN_SIGNING_KEY }}
