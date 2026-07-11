@@ -189,6 +189,17 @@ public class EditorRenderer {
 
     public void draw(@NonNull Canvas canvas) {
         int saveCount = canvas.save();
+        EditorTouchEventHandler touchHandler = editor.getEventHandler();
+        boolean livePreviewScaling = touchHandler.isScaling && touchHandler.pendingScaleFactor != 1f;
+        if (livePreviewScaling) {
+            // The gesture is in progress and the real text size hasn't been touched
+            // yet (that only happens once, in onScaleEnd) - so what's already laid
+            // out on screen is still valid. Just scale the canvas around the pinch's
+            // focal point for an instant, effectively-free zoom preview, the same way
+            // an image/photo viewer would.
+            canvas.scale(touchHandler.pendingScaleFactor, touchHandler.pendingScaleFactor,
+                    touchHandler.scalePivotX, touchHandler.scalePivotY);
+        }
         canvas.translate(editor.getOffsetX(), editor.getOffsetY());
         renderingFlag = true;
         try {
@@ -753,7 +764,7 @@ public class EditorRenderer {
                 }
                 drawColor(canvas, editor.getColorScheme().getColor(colorId), tmpRect);
                 if (canvas.isHardwareAccelerated() && editor.isHardwareAcceleratedDrawAllowed() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
-                        && editor.getRenderContext().getRenderNodeHolder() != null && !editor.getEventHandler().isScaling &&
+                        && editor.getRenderContext().getRenderNodeHolder() != null &&
                         (editor.getProps().cacheRenderNodeForLongLines || getLine(block.startLine).length() < 128)) {
                     editor.getRenderContext().getRenderNodeHolder().drawLineHardwareAccelerated(canvas, block.startLine, offset, offsetLine * editor.getRowHeight());
                 } else {
@@ -1419,8 +1430,7 @@ public class EditorRenderer {
 
             // Draw text here
             if (!editor.isHardwareAcceleratedDrawAllowed()
-                    || editor.getEventHandler().isScaling ||
-                    !canvas.isHardwareAccelerated() || editor.isWordwrap() ||
+                    || !canvas.isHardwareAccelerated() || editor.isWordwrap() ||
                     Build.VERSION.SDK_INT < Build.VERSION_CODES.Q
                     || (rowInf.endColumn - rowInf.startColumn > 128 && !editor.getProps().cacheRenderNodeForLongLines) /* Save memory */) {
                 // Draw without hardware acceleration
