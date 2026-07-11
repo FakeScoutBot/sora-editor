@@ -98,6 +98,17 @@ public final class EditorTouchEventHandler implements GestureDetector.OnGestureL
     float scaleMaxSize;
     float scaleMinSize;
     private float textSizeStart;
+    // Live pinch-zoom preview: instead of re-measuring/re-laying-out text on every
+    // onScale() frame (which is what makes native pinch zoom feel like ~20fps - the
+    // text size used to change, and get fully re-drawn, on every single gesture
+    // frame), we leave the committed text size untouched during the gesture and
+    // instead have EditorRenderer apply a plain canvas scale transform around the
+    // focal point. That's just GPU compositing of what's already on screen - the
+    // real (expensive) text re-layout at the chosen size only happens once, in
+    // onScaleEnd(). Package-private: read directly by EditorRenderer.draw().
+    float pendingScaleFactor = 1f;
+    float scalePivotX;
+    float scalePivotY;
     private long timeLastScroll = 0;
     private long timeLastSetSelection = 0;
     private boolean holdingScrollbarVertical = false;
@@ -1043,25 +1054,16 @@ public final class EditorTouchEventHandler implements GestureDetector.OnGestureL
             return true;
         }
         if (editor.isScalable()) {
-            float newSize = editor.getTextSizePx() * detector.getScaleFactor();
-            if (newSize < scaleMinSize || newSize > scaleMaxSize) {
+            float candidateFactor = pendingScaleFactor * detector.getScaleFactor();
+            float candidateSize = textSizeStart * candidateFactor;
+            if (candidateSize < scaleMinSize || candidateSize > scaleMaxSize) {
                 return true;
             }
-            float focusX = detector.getFocusX();
-            float focusY = detector.getFocusY();
-            int originHeight = editor.getRowHeight();
-            editor.setTextSizePxDirect(newSize);
-            float heightFactor = editor.getRowHeight() * 1f / originHeight;
-            float afterScrollY = (scroller.getCurrY() + focusY) * heightFactor - focusY;
-            float afterScrollX = (scroller.getCurrX() + focusX) * detector.getScaleFactor() - focusX;
-            afterScrollX = Math.max(0, Math.min(afterScrollX, editor.getScrollMaxX()));
-            afterScrollY = Math.max(0, Math.min(afterScrollY, editor.getScrollMaxY()));
-            editor.dispatchEvent(new ScrollEvent(editor, scroller.getCurrX(),
-                    scroller.getCurrY(), (int) afterScrollX, (int) afterScrollY, ScrollEvent.CAUSE_SCALE_TEXT));
-            scroller.startScroll((int) afterScrollX, (int) afterScrollY, 0, 0, 0);
-            scroller.abortAnimation();
+            pendingScaleFactor = candidateFactor;
+            scalePivotX = detector.getFocusX();
+            scalePivotY = detector.getFocusY();
             isScaling = true;
-            editor.invalidate();
+            editor.postInvalidateOnAnimation();
             return true;
         }
         return false;
@@ -1071,6 +1073,7 @@ public final class EditorTouchEventHandler implements GestureDetector.OnGestureL
     public boolean onScaleBegin(@NonNull ScaleGestureDetector detector) {
         scroller.forceFinished(true);
         textSizeStart = editor.getTextSizePx();
+        pendingScaleFactor = 1f;
         return editor.isScalable() && !editor.isFormatting() && !hasAnyHeldHandle();
     }
 
@@ -1081,13 +1084,30 @@ public final class EditorTouchEventHandler implements GestureDetector.OnGestureL
     @Override
     public void onScaleEnd(@NonNull ScaleGestureDetector detector) {
         isScaling = false;
-        if (textSizeStart == editor.getTextSizePx()) {
+        if (pendingScaleFactor == 1f) {
             return;
         }
+        float finalSize = textSizeStart * pendingScaleFactor;
+        finalSize = Math.max(scaleMinSize, Math.min(scaleMaxSize, finalSize));
+        float focusX = scalePivotX;
+        float focusY = scalePivotY;
+        int originHeight = editor.getRowHeight();
+        editor.setTextSizePxDirect(finalSize);
+        float heightFactor = editor.getRowHeight() * 1f / originHeight;
+        float afterScrollY = (scroller.getCurrY() + focusY) * heightFactor - focusY;
+        float afterScrollX = (scroller.getCurrX() + focusX) * pendingScaleFactor - focusX;
+        afterScrollX = Math.max(0, Math.min(afterScrollX, editor.getScrollMaxX()));
+        afterScrollY = Math.max(0, Math.min(afterScrollY, editor.getScrollMaxY()));
+        editor.dispatchEvent(new ScrollEvent(editor, scroller.getCurrX(),
+                scroller.getCurrY(), (int) afterScrollX, (int) afterScrollY, ScrollEvent.CAUSE_SCALE_TEXT));
+        scroller.startScroll((int) afterScrollX, (int) afterScrollY, 0, 0, 0);
+        scroller.abortAnimation();
+        pendingScaleFactor = 1f;
+
         editor.getRenderer().forcedRecreateLayout = true;
         if (editor.isWordwrap()) {
-            focusY = detector.getFocusY();
-            memoryPosition = editor.getPointPositionOnScreen(detector.getFocusX(), detector.getFocusY());
+            this.focusY = focusY;
+            memoryPosition = editor.getPointPositionOnScreen(focusX, focusY);
             positionNotApplied = true;
         } else {
             positionNotApplied = false;
