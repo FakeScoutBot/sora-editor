@@ -24,7 +24,7 @@
 @SuppressWarnings("unused")
 object Versions {
     // Project versions
-    private const val version = "0.24.6"
+    private const val version = "0.24.6-patched"
     const val versionCode = 95
 
     val appVersionName by lazy {
